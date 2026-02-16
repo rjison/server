@@ -1,11 +1,11 @@
 {{define "device_tv"}}
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ .Device.Name }} - TV Mode</title>
-    <script>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>{{ .Device.Name }} - TV Mode</title>
+        <script>
         // Wait for the HTML to be fully loaded
         document.addEventListener('DOMContentLoaded', () => {
             const btn = document.getElementById('fullscreen-btn');
@@ -34,8 +34,8 @@
                 });
             }, 60000);
         });
-    </script>
-   <style>
+        </script>
+        <style>
         body, html {
             background-color: black !important;
             color: white;
@@ -109,29 +109,37 @@
         #fullscreen-btn:hover {
             opacity: 0.8;
         }
-    </style>
-</head>
-<body>
-    <div class="tv-container">
-        <div class="app-grid">
-        {{ range .Device.Apps }}
-            {{ if .Enabled }}  <div class="app-card" style="background: none; border: none; padding: 10px;">
-                    <img src="/devices/{{ $.Device.ID }}/installations/{{ .Iname }}/preview" 
-                        style="width: 100%; aspect-ratio: 64/32; image-rendering: pixelated; display: block;">
+        </style>
+    </head>
+    <body>
+        <div class="tv-container">
+            <div class="app-grid">
+                {{ range .Device.Apps }}
+                {{ if .Enabled }}
+                <div class="app-card"
+                     style="background: none;
+                            border: none;
+                            padding: 10px">
+                    <img src="/devices/{{ $.Device.ID }}/installations/{{ .Iname }}/preview"
+                         style="width: 100%;
+                                aspect-ratio: 64/32;
+                                image-rendering: pixelated;
+                                display: block">
                 </div>
-            {{ end }}
-        {{ end }}
-        </div>
-
-        <div class="device-header">
-            <div>
-                {{ .Device.Name }} <span class="status-pill">Live Monitor</span>
+                {{ end }}
+                {{ end }}
             </div>
-            <button id="fullscreen-btn" class="w3-button w3-teal w3-round" style="font-size: 1rem;">
-                <i class="fa-solid fa-expand"></i> Fullscreen
-            </button>
+            <div class="device-header">
+                <div>
+                    {{ .Device.Name }} <span class="status-pill">Live Monitor</span>
+                </div>
+                <button id="fullscreen-btn"
+                        class="w3-button w3-teal w3-round"
+                        style="font-size: 1rem">
+                    <i class="fa-solid fa-expand"></i> Fullscreen
+                </button>
+            </div>
         </div>
-    </div>
-</body>
+    </body>
 </html>
 {{end}}
