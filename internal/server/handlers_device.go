@@ -42,12 +42,15 @@ func (s *Server) handleCreateDeviceGet(w http.ResponseWriter, r *http.Request) {
 		defaultMode = "from_name"
 	}
 
+	// Default RequireAPIKey to true for non-local (remote) access
+	requireAPIKeyDefault := !s.isTrustedNetwork(r)
+
 	localizer := s.getLocalizer(r)
 	s.renderTemplate(w, r, "create", TemplateData{
 		User:              user,
 		DeviceTypeChoices: s.getDeviceTypeChoices(localizer),
 		Localizer:         localizer,
-		Form:              CreateDeviceFormData{Brightness: data.Brightness(20).UIScale(nil), DeviceIDMode: defaultMode},
+		Form:              CreateDeviceFormData{Brightness: data.Brightness(20).UIScale(nil), DeviceIDMode: defaultMode, RequireAPIKey: requireAPIKeyDefault},
 	})
 }
 
@@ -62,6 +65,7 @@ func (s *Server) handleCreateDevicePost(w http.ResponseWriter, r *http.Request) 
 		DeviceType:     r.FormValue("device_type"),
 		ImgURL:         r.FormValue("img_url"),
 		WsURL:          r.FormValue("ws_url"),
+		RequireAPIKey:  r.FormValue("require_api_key") == "on",
 		Notes:          r.FormValue("notes"),
 		LocationJSON:   r.FormValue("location"),
 		LocationSearch: r.FormValue("location_search"), // Used for re-populating form
@@ -217,6 +221,7 @@ func (s *Server) handleCreateDevicePost(w http.ResponseWriter, r *http.Request) 
 		Name:                  formData.Name,
 		Type:                  deviceType,
 		APIKey:                apiKey,
+		RequireAPIKey:         formData.RequireAPIKey,
 		ImgURL:                formData.ImgURL, // Can be overridden by default logic later
 		WsURL:                 formData.WsURL,  // Can be overridden by default logic later
 		Notes:                 formData.Notes,
@@ -239,6 +244,12 @@ func (s *Server) handleCreateDevicePost(w http.ResponseWriter, r *http.Request) 
 	}
 	if newDevice.WsURL == "" {
 		newDevice.WsURL = s.getWebsocketURL(r, newDevice.ID)
+	}
+
+	// If RequireAPIKey is enabled, append the key to the URLs
+	if newDevice.RequireAPIKey {
+		newDevice.ImgURL = s.getImageURLWithKey(r, newDevice.ID, apiKey)
+		newDevice.WsURL = s.getWebsocketURLWithKey(r, newDevice.ID, apiKey)
 	}
 
 	// Save to DB
@@ -276,6 +287,15 @@ func (s *Server) handleUpdateDeviceGet(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r)
 	device := GetDevice(r)
 
+	// Reload device from DB to ensure we have latest data (especially RequireAPIKey)
+	freshDevice, err := gorm.G[data.Device](s.DB).Where("id = ?", device.ID).First(r.Context())
+	if err != nil {
+		slog.Error("Failed to reload device", "error", err)
+		http.Error(w, "Device not found", http.StatusNotFound)
+		return
+	}
+	device = &freshDevice
+
 	// Parse custom brightness scale if device has one
 	var customScale map[int]int
 	if device.CustomBrightnessScale != "" {
@@ -312,14 +332,27 @@ func (s *Server) handleUpdateDeviceGet(w http.ResponseWriter, r *http.Request) {
 	if strings.Contains(imgURL, "localhost") || strings.Contains(imgURL, "127.0.0.1") {
 		urlWarning = "localhost"
 	}
+	defaultImgURL := s.getImageURL(r, device.ID)
+	defaultWsURL := s.getWebsocketURL(r, device.ID)
+	firmwareImgURL := ""
+	if device.Info.ImageURL != nil {
+		firmwareImgURL = *device.Info.ImageURL
+	}
+	if device.RequireAPIKey {
+		defaultImgURL = s.getImageURLWithKey(r, device.ID, device.APIKey)
+		defaultWsURL = s.getWebsocketURLWithKey(r, device.ID, device.APIKey)
+		firmwareImgURL = s.getImageURLWithKey(r, device.ID, device.APIKey)
+	}
+
 	s.renderTemplate(w, r, "update", TemplateData{
 		User:                      user,
 		Device:                    device,
 		DeviceTypeChoices:         s.getDeviceTypeChoices(localizer),
 		ColorFilterOptions:        s.getColorFilterChoices(),
 		AvailableLocales:          locales,
-		DefaultImgURL:             s.getImageURL(r, device.ID),
-		DefaultWsURL:              s.getWebsocketURL(r, device.ID),
+		DefaultImgURL:             defaultImgURL,
+		DefaultWsURL:              defaultWsURL,
+		FirmwareImgURL:            firmwareImgURL,
 		BrightnessUI:              bUI,
 		NightBrightnessUI:         nbUI,
 		DimBrightnessUI:           dbUI,
@@ -542,6 +575,26 @@ func (s *Server) handleUpdateDevicePost(w http.ResponseWriter, r *http.Request) 
 	// 9. OTA
 	device.SwapColors = r.FormValue("swap_colors") == "on"
 
+	// 10. Require API Key
+	device.RequireAPIKey = r.FormValue("require_api_key") == "on"
+
+	// Update URLs based on RequireAPIKey setting
+	// Preserve user's custom URL if provided, just append the key
+	userImgURL := s.sanitizeURL(r.FormValue("img_url"))
+	userWsURL := s.sanitizeURL(r.FormValue("ws_url"))
+	if device.RequireAPIKey {
+		if userImgURL != "" {
+			device.ImgURL = appendKeyToURLString(userImgURL, device.APIKey)
+		} else {
+			device.ImgURL = s.getImageURLWithKey(r, device.ID, device.APIKey)
+		}
+		if userWsURL != "" {
+			device.WsURL = appendKeyToURLString(userWsURL, device.APIKey)
+		} else {
+			device.WsURL = s.getWebsocketURLWithKey(r, device.ID, device.APIKey)
+		}
+	}
+
 	if err := s.DB.Omit("Apps").Save(device).Error; err != nil {
 		slog.Error("Failed to update device", "error", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -709,6 +762,7 @@ func (s *Server) handleImportDeviceConfig(w http.ResponseWriter, r *http.Request
 		device.NightColorFilter = importedDevice.NightColorFilter
 		device.DimColorFilter = importedDevice.DimColorFilter
 		device.SwapColors = importedDevice.SwapColors
+		device.RequireAPIKey = importedDevice.RequireAPIKey
 
 		if err := tx.Save(device).Error; err != nil {
 			return fmt.Errorf("failed to save updated device: %w", err)

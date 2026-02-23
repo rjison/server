@@ -179,6 +179,9 @@
   "Name is required.": {
     "other": "Name is required."
   },
+  "Name already exists.": {
+    "other": "Name already exists."
+  },
   "Invalid Device ID.": {
     "other": "Invalid Device ID."
   },
@@ -1016,6 +1019,9 @@
   "Leave blank to auto-generate.": {
     "other": "Leave blank to auto-generate."
   },
+  "Auto-generated from name": {
+    "other": "Auto-generated from name"
+  },
   "Device Type": {
     "other": "Device Type"
   },
@@ -1726,5 +1732,11 @@
   },
   "16-char hex": {
     "other": "16-char hex"
+  },
+  "Require API Key": {
+    "other": "Require API Key"
+  },
+  "RequireAPIKeyHelp": {
+    "other": "When enabled, the device must authenticate with the server using an API key for added security.  Highly recommended for publicly accessible servers."
   }
 }

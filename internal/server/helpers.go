@@ -11,8 +11,10 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -84,6 +86,7 @@ type TemplateData struct {
 	AvailableLocales   []string
 	DefaultImgURL      string
 	DefaultWsURL       string
+	FirmwareImgURL     string
 	BrightnessUI       int
 	NightBrightnessUI  int
 	DimBrightnessUI    int
@@ -112,6 +115,7 @@ type CreateDeviceFormData struct {
 	ImgURL         string
 	WsURL          string
 	APIKey         string
+	RequireAPIKey  bool
 	Notes          string
 	Brightness     int
 	LocationSearch string
@@ -565,6 +569,65 @@ func (s *Server) getImageURL(r *http.Request, deviceID string) string {
 	return fmt.Sprintf("%s/%s/next", baseURL, deviceID)
 }
 
+func (s *Server) getImageURLWithKey(r *http.Request, deviceID string, apiKey string) string {
+	u := s.getImageURL(r, deviceID)
+	if apiKey != "" {
+		u += "?key=" + apiKey
+	}
+	return u
+}
+
+// appendKeyToURLString appends ?key=apiKey (or &key=apiKey) to a URL string.
+// It first removes any existing key parameter to avoid double-append.
+func appendKeyToURLString(rawURL string, apiKey string) string {
+	if apiKey == "" || rawURL == "" {
+		return rawURL
+	}
+
+	// Remove existing key parameter first to avoid double-append
+	rawURL = removeKeyFromURLString(rawURL)
+
+	if strings.Contains(rawURL, "?") {
+		return rawURL + "&key=" + apiKey
+	}
+	return rawURL + "?key=" + apiKey
+}
+
+// removeKeyFromURLString removes the key query parameter from a URL string.
+func removeKeyFromURLString(rawURL string) string {
+	if rawURL == "" {
+		return rawURL
+	}
+
+	// Simple regex-free approach
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		// If parsing fails, do simple string replacement
+		re := regexp.MustCompile(`([?&])key=[^&]*(&|$)`)
+		result := re.ReplaceAllString(rawURL, "$1")
+		result = strings.TrimSuffix(result, "?")
+		result = strings.TrimSuffix(result, "&")
+		return result
+	}
+
+	query := u.Query()
+	query.Del("key")
+	u.RawQuery = query.Encode()
+	return u.String()
+}
+
+// extractDeviceKey extracts the device API key from the request.
+// It checks the "key" query parameter first, then the Authorization: Bearer header.
+func extractDeviceKey(r *http.Request) string {
+	if key := r.URL.Query().Get("key"); key != "" {
+		return key
+	}
+	if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+		return strings.TrimPrefix(auth, "Bearer ")
+	}
+	return ""
+}
+
 func (s *Server) getWebsocketURL(r *http.Request, deviceID string) string {
 	baseURL := s.GetBaseURL(r)
 	wsScheme := "ws"
@@ -572,6 +635,14 @@ func (s *Server) getWebsocketURL(r *http.Request, deviceID string) string {
 		wsScheme = "wss"
 	}
 	return fmt.Sprintf("%s://%s/%s/ws", wsScheme, r.Host, deviceID)
+}
+
+func (s *Server) getWebsocketURLWithKey(r *http.Request, deviceID string, apiKey string) string {
+	u := s.getWebsocketURL(r, deviceID)
+	if apiKey != "" {
+		u += "?key=" + apiKey
+	}
+	return u
 }
 
 func stringPtr(s string) *string {
