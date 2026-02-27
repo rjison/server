@@ -119,26 +119,19 @@ func (s *Server) handleAddAppPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1. Find App Details (Recommended Interval)
-	recommendedInterval := 15 // Default
-
-	// Try to get metadata using getAppMetadata (checks cache and disk)
-	if metadata := s.getAppMetadata(appPath); metadata != nil {
-		recommendedInterval = metadata.RecommendedInterval
-	}
-
-	uinterval := 0
+	// Get uinterval from form: -1 means not set (use recommended/default)
+	uinterval := -1
 	if uintervalStr != "" {
 		if val, err := strconv.Atoi(uintervalStr); err == nil {
 			uinterval = val
 		}
 	}
-
-	// Use recommended_interval logic
-	if uinterval == 0 || (uinterval == 10 && recommendedInterval != 10) {
-		uinterval = recommendedInterval
+	// If not set (was -1), default to 10
+	if uinterval == -1 {
+		uinterval = 10
 	}
-	if uinterval == 0 {
+	// Ensure uinterval is not negative
+	if uinterval < 0 {
 		uinterval = 10
 	}
 
